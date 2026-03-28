@@ -18,10 +18,12 @@ import sys
 import os
 import json
 
+offset = 0
+
 class ModbusSlaveServer:
     """Modbus TCP从机服务器类"""
     
-    def __init__(self, ip='0.0.0.0', port=502, unit_id=1, message_queue=None, enabled_functions=None,
+    def __init__(self, ip='192.168.1.113', port=502, unit_id=1, message_queue=None, enabled_functions=None,
                  address_offset=0, byte_order='big'):
         """
         初始化Modbus从机服务器
@@ -60,6 +62,9 @@ class ModbusSlaveServer:
         
         # 地址映射和字节序配置
         self.address_offset = address_offset
+        global offset
+        offset = address_offset
+
         self.byte_order = byte_order
         
         # 初始化一些测试数据
@@ -86,6 +91,7 @@ class ModbusSlaveServer:
         self.coils[0] = True
         self.discrete_inputs[0] = True
         self.input_registers[0] = 233
+        self.input_registers[1] = 0
         self.holding_registers[0] = 2333
 
 
@@ -711,8 +717,17 @@ class ModbusSlaveGUI:
         # 配置网格权重
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(3, weight=1)
+        main_frame.columnconfigure(2, weight=1)
+        # 给所有行分配权重，确保缩放时布局正确
+        main_frame.rowconfigure(0, weight=0)  # 标题行，不扩展
+        main_frame.rowconfigure(1, weight=0)  # 配置区域，不扩展
+        main_frame.rowconfigure(2, weight=0)  # 状态区域，不扩展
+        main_frame.rowconfigure(3, weight=3)  # 日志区域权重最高
+        main_frame.rowconfigure(4, weight=2)  # 数据监控区域权重次高
+        main_frame.rowconfigure(5, weight=0)  # 清空日志按钮，不扩展
+        main_frame.rowconfigure(6, weight=0)  # 作者信息，不扩展
         
         # 标题
         title_label = ttk.Label(
@@ -729,7 +744,7 @@ class ModbusSlaveGUI:
         
         # IP地址
         ttk.Label(config_frame, text="IP地址:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-        self.ip_var = tk.StringVar(value="0.0.0.0")
+        self.ip_var = tk.StringVar(value="192.168.1.113")
         ip_entry = ttk.Entry(config_frame, textvariable=self.ip_var, width=20)
         ip_entry.grid(row=0, column=1, sticky=tk.W, padx=(0, 20))
         ttk.Label(config_frame, text="(0.0.0.0监听所有接口)").grid(row=0, column=2, sticky=tk.W)
@@ -793,7 +808,7 @@ class ModbusSlaveGUI:
         address_frame = ttk.Frame(config_frame)
         address_frame.grid(row=4, column=1, columnspan=2, sticky=tk.W, pady=(10, 0))
         
-        self.address_offset_var = tk.IntVar(value=0)  # 0: 从0开始, 1: 从1开始
+        self.address_offset_var = tk.IntVar(value=1)  # 0: 从0开始, 1: 从1开始
         
         ttk.Radiobutton(
             address_frame,
@@ -875,10 +890,13 @@ class ModbusSlaveGUI:
         self.log_text = scrolledtext.ScrolledText(
             log_frame, 
             width=100, 
-            height=20,
+            height=8,  # 进一步减小初始高度，让权重配置控制实际大小
             font=("Consolas", 9)
         )
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 确保日志区域内部组件能够正确扩展
+        self.log_text.configure(wrap=tk.WORD)
         
         # 配置文本标签
         self.log_text.tag_config("timestamp", foreground="gray")
@@ -889,11 +907,16 @@ class ModbusSlaveGUI:
         
         # 数据监控区域
         data_frame = ttk.LabelFrame(main_frame, text="数据监控", padding="10")
-        data_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        data_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        data_frame.columnconfigure(0, weight=1)
+        data_frame.rowconfigure(0, weight=1)
         
         # 创建Notebook用于切换不同数据类型的显示
         self.data_notebook = ttk.Notebook(data_frame)
-        self.data_notebook.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        self.data_notebook.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 确保Notebook能够正确扩展
+        self.data_notebook.configure(height=200)  # 设置一个初始高度，但权重配置会控制实际大小
         
         # 创建各数据类型的显示框架
         self._create_data_monitors()
@@ -934,19 +957,24 @@ class ModbusSlaveGUI:
         coils_frame = ttk.Frame(self.data_notebook, padding="5")
         self.data_notebook.add(coils_frame, text="线圈状态")
         
+        # 配置线圈框架的网格权重
+        coils_frame.columnconfigure(0, weight=1)
+        coils_frame.rowconfigure(0, weight=1)
+        coils_frame.rowconfigure(1, weight=0)  # 按钮行不扩展
+        
         # 线圈状态表格
         self.coils_tree = ttk.Treeview(
             coils_frame,
             columns=("address", "status", "value"),
             show="headings",
-            height=10
+            height=8  # 减小初始高度，让权重配置控制实际大小
         )
         self.coils_tree.heading("address", text="地址")
         self.coils_tree.heading("status", text="状态")
         self.coils_tree.heading("value", text="值")
-        self.coils_tree.column("address", width=80)
-        self.coils_tree.column("status", width=80)
-        self.coils_tree.column("value", width=100)
+        self.coils_tree.column("address", width=80, stretch=False)
+        self.coils_tree.column("status", width=80, stretch=False)
+        self.coils_tree.column("value", width=100, stretch=False)
         
         # 绑定双击事件
         self.coils_tree.bind("<Double-1>", lambda e: self._on_treeview_double_click(e, "coil"))
@@ -973,47 +1001,51 @@ class ModbusSlaveGUI:
             width=10
         ).pack(side=tk.LEFT)
         
-        coils_frame.columnconfigure(0, weight=1)
-        coils_frame.rowconfigure(0, weight=1)
-        
         # 离散输入
         inputs_frame = ttk.Frame(self.data_notebook, padding="5")
         self.data_notebook.add(inputs_frame, text="离散输入")
+        
+        # 配置离散输入框架的网格权重
+        inputs_frame.columnconfigure(0, weight=1)
+        inputs_frame.rowconfigure(0, weight=1)
         
         # 离散输入表格
         self.inputs_tree = ttk.Treeview(
             inputs_frame,
             columns=("address", "status"),
             show="headings",
-            height=10
+            height=8  # 减小初始高度，让权重配置控制实际大小
         )
         self.inputs_tree.heading("address", text="地址")
         self.inputs_tree.heading("status", text="状态")
-        self.inputs_tree.column("address", width=80)
-        self.inputs_tree.column("status", width=80)
+        self.inputs_tree.column("address", width=80, stretch=False)
+        self.inputs_tree.column("status", width=80, stretch=False)
         
         # 绑定双击事件
         self.inputs_tree.bind("<Double-1>", lambda e: self._on_treeview_double_click(e, "discrete_input"))
         
         self.inputs_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        inputs_frame.columnconfigure(0, weight=1)
-        inputs_frame.rowconfigure(0, weight=1)
         
         # 输入寄存器
         input_regs_frame = ttk.Frame(self.data_notebook, padding="5")
         self.data_notebook.add(input_regs_frame, text="输入寄存器")
+        
+        # 配置输入寄存器框架的网格权重
+        input_regs_frame.columnconfigure(0, weight=1)
+        input_regs_frame.rowconfigure(0, weight=1)
+        input_regs_frame.rowconfigure(1, weight=0)  # 按钮行不扩展
         
         # 输入寄存器表格
         self.input_regs_tree = ttk.Treeview(
             input_regs_frame,
             columns=("address", "value"),
             show="headings",
-            height=10
+            height=8  # 减小初始高度，让权重配置控制实际大小
         )
         self.input_regs_tree.heading("address", text="地址")
         self.input_regs_tree.heading("value", text="值")
-        self.input_regs_tree.column("address", width=80)
-        self.input_regs_tree.column("value", width=100)
+        self.input_regs_tree.column("address", width=80, stretch=False)
+        self.input_regs_tree.column("value", width=100, stretch=False)
         
         # 绑定双击事件
         self.input_regs_tree.bind("<Double-1>", lambda e: self._on_treeview_double_click(e, "input_register"))
@@ -1038,9 +1070,6 @@ class ModbusSlaveGUI:
             command=self._set_input_register_value,
             width=10
         ).pack(side=tk.LEFT)
-        
-        input_regs_frame.columnconfigure(0, weight=1)
-        input_regs_frame.rowconfigure(0, weight=1)
         
         # 保持寄存器
         holding_regs_frame = ttk.Frame(self.data_notebook, padding="5")
@@ -1117,6 +1146,11 @@ class ModbusSlaveGUI:
         date_frame = ttk.Frame(simulation_notebook, padding="10")
         simulation_notebook.add(date_frame, text="日期数据")
         self._create_date_interface(date_frame)
+        
+        # 任务列表功能
+        task_list_frame = ttk.Frame(simulation_notebook, padding="10")
+        simulation_notebook.add(task_list_frame, text="任务列表")
+        self._create_task_list_interface(task_list_frame)
         
         # 配置网格权重
         parent_frame.columnconfigure(0, weight=1)
@@ -1253,7 +1287,7 @@ class ModbusSlaveGUI:
         address_frame.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
         
         ttk.Label(address_frame, text="基础地址:").pack(side=tk.LEFT, padx=(0, 5))
-        self.time_base_address_var = tk.StringVar(value="100")
+        self.time_base_address_var = tk.StringVar(value="101")
         ttk.Entry(address_frame, textvariable=self.time_base_address_var, width=10).pack(side=tk.LEFT, padx=(0, 10))
         
         ttk.Label(address_frame, text="(占用3个地址: HH, MM, SS)").pack(side=tk.LEFT)
@@ -1306,7 +1340,7 @@ class ModbusSlaveGUI:
         address_frame.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
         
         ttk.Label(address_frame, text="基础地址:").pack(side=tk.LEFT, padx=(0, 5))
-        self.date_base_address_var = tk.StringVar(value="200")
+        self.date_base_address_var = tk.StringVar(value="201")
         ttk.Entry(address_frame, textvariable=self.date_base_address_var, width=10).pack(side=tk.LEFT, padx=(0, 10))
         
         ttk.Label(address_frame, text="(占用4个地址: YY, MM, DD, Weekday)").pack(side=tk.LEFT)
@@ -1351,6 +1385,163 @@ class ModbusSlaveGUI:
         # 配置网格权重
         parent_frame.columnconfigure(0, weight=1)
         parent_frame.rowconfigure(3, weight=1)
+        
+    def _create_task_list_interface(self, parent_frame):
+        """创建任务列表界面"""
+        # 任务列表表格
+        self.task_tree = ttk.Treeview(
+            parent_frame,
+            columns=("type", "data_type", "address", "interval", "details"),
+            show="headings",
+            height=15
+        )
+        self.task_tree.heading("type", text="任务类型")
+        self.task_tree.heading("data_type", text="数据类型")
+        self.task_tree.heading("address", text="地址")
+        self.task_tree.heading("interval", text="间隔(ms)")
+        self.task_tree.heading("details", text="详细信息")
+        
+        self.task_tree.column("type", width=80, stretch=False)
+        self.task_tree.column("data_type", width=100, stretch=False)
+        self.task_tree.column("address", width=80, stretch=False)
+        self.task_tree.column("interval", width=80, stretch=False)
+        self.task_tree.column("details", width=200, stretch=True)
+        
+        # 添加滚动条
+        task_scrollbar = ttk.Scrollbar(parent_frame, orient="vertical", command=self.task_tree.yview)
+        self.task_tree.configure(yscrollcommand=task_scrollbar.set)
+        
+        self.task_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        task_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        
+        # 按钮框架
+        button_frame = ttk.Frame(parent_frame)
+        button_frame.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(10, 0))
+        
+        # 刷新按钮
+        ttk.Button(
+            button_frame,
+            text="刷新任务列表",
+            command=self._refresh_task_list,
+            width=15
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # 删除选中任务按钮
+        ttk.Button(
+            button_frame,
+            text="删除选中任务",
+            command=self._remove_selected_task,
+            width=15
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        # 删除所有任务按钮
+        ttk.Button(
+            button_frame,
+            text="删除所有任务",
+            command=self._remove_all_tasks,
+            width=15
+        ).pack(side=tk.LEFT)
+        
+        # 配置网格权重
+        parent_frame.columnconfigure(0, weight=1)
+        parent_frame.rowconfigure(0, weight=1)
+        parent_frame.rowconfigure(1, weight=0)  # 按钮行不扩展
+        
+        # 启动定时刷新
+        self._refresh_task_list()
+        
+    def _refresh_task_list(self):
+        """刷新任务列表"""
+        if not hasattr(self, 'task_tree'):
+            return
+        
+        # 清空当前列表
+        for item in self.task_tree.get_children():
+            self.task_tree.delete(item)
+        
+        # 获取所有任务
+        if self.data_simulation_manager:
+            tasks = self.data_simulation_manager.get_all_tasks()
+            
+            # 添加任务到表格
+            global offset
+            for task in tasks:
+                task_type = task['type']
+                data_type = task.get('data_type', '')
+                if task_type == "日期数据" or task_type == "时间数据":
+                    address = str(task.get('address', task.get('base_address', '')) + 1 + offset) 
+                else:
+                    address = str(task.get('address', task.get('base_address', '')) + offset)
+                
+                interval = str(task.get('interval', ''))
+                
+                # 构建详细信息
+                details = ""
+                if task_type == '自增':
+                    details = f"步长:{task.get('step', '')} 范围:{task.get('min', '')}-{task.get('max', '')} 当前:{task.get('current', '')}"
+                elif task_type == '位翻转':
+                    details = f"位翻转任务"
+                elif task_type == '时间数据':
+                    details = f"占用3个地址: HH, MM, SS"
+                elif task_type == '日期数据':
+                    details = f"占用4个地址: YY, MM, DD, Weekday"
+                
+                self.task_tree.insert("", "end", values=(task_type, data_type, address, interval, details))
+        
+        # 5秒后再次刷新
+        self.root.after(5000, self._refresh_task_list)
+        
+    def _remove_selected_task(self):
+        """删除选中的任务"""
+        if not hasattr(self, 'task_tree'):
+            return
+        
+        selected_items = self.task_tree.selection()
+        if not selected_items:
+            messagebox.showinfo("提示", "请先选择一个任务")
+            return
+        
+        for item in selected_items:
+            values = self.task_tree.item(item, "values")
+            if values and len(values) >= 5:
+                task_type = values[0]
+                data_type = values[1]
+                address = values[2]
+                
+                # 根据任务类型删除
+                if self.data_simulation_manager:
+                    if task_type == '自增':
+                        self.data_simulation_manager.remove_increment_task(int(address), data_type)
+                    elif task_type == '位翻转':
+                        self.data_simulation_manager.remove_bit_flip_task(int(address), data_type)
+                    elif task_type == '时间数据':
+                        self.data_simulation_manager.remove_time_task(int(address))
+                    elif task_type == '日期数据':
+                        self.data_simulation_manager.remove_date_task(int(address))
+        
+        # 刷新任务列表
+        self._refresh_task_list()
+        
+    def _remove_all_tasks(self):
+        """删除所有任务"""
+        if not self.data_simulation_manager:
+            return
+        
+        # 确认对话框
+        if not messagebox.askyesno("确认", "确定要删除所有任务吗？"):
+            return
+        
+        # 移除所有任务
+        with self.data_simulation_manager.lock:
+            self.data_simulation_manager.increment_tasks.clear()
+            self.data_simulation_manager.bit_flip_tasks.clear()
+            self.data_simulation_manager.time_tasks.clear()
+            self.data_simulation_manager.date_tasks.clear()
+        
+        self._log_message("已删除所有任务")
+        
+        # 刷新任务列表
+        self._refresh_task_list()
         
     def _update_time_display(self):
         """更新时间显示"""
@@ -1447,8 +1638,10 @@ class ModbusSlaveGUI:
         
         try:
             # 获取参数
+            global offset
+
             data_type = self.increment_data_type_var.get()
-            address = int(self.increment_address_var.get())
+            address = int(self.increment_address_var.get()) - offset
             interval_ms = int(self.increment_interval_var.get())
             step = int(self.increment_step_var.get())
             min_value = int(self.increment_min_var.get())
@@ -1504,8 +1697,9 @@ class ModbusSlaveGUI:
         
         try:
             # 获取参数
+            global offset
             data_type = self.bit_flip_data_type_var.get()
-            address = int(self.bit_flip_address_var.get())
+            address = int(self.bit_flip_address_var.get()) - offset
             interval_ms = int(self.bit_flip_interval_var.get())
             
             # 验证参数
@@ -1552,7 +1746,8 @@ class ModbusSlaveGUI:
         
         try:
             # 获取参数
-            base_address = int(self.time_base_address_var.get())
+            global offset
+            base_address = int(self.time_base_address_var.get()) - 1 - offset
             interval_ms = int(self.time_interval_var.get())
             
             # 验证参数
@@ -1598,7 +1793,8 @@ class ModbusSlaveGUI:
         
         try:
             # 获取参数
-            base_address = int(self.date_base_address_var.get())
+            global offset
+            base_address = int(self.date_base_address_var.get()) - 1 - offset
             interval_ms = int(self.date_interval_var.get())
             
             # 验证参数
@@ -2492,6 +2688,79 @@ class DataSimulationManager:
         self.running = False
         if self.simulation_thread.is_alive():
             self.simulation_thread.join(timeout=1)
+    
+    def get_all_tasks(self):
+        """获取所有任务列表"""
+        tasks = []
+        with self.lock:
+            # 自增任务
+            for task in self.increment_tasks:
+                tasks.append({
+                    'type': '自增',
+                    'data_type': task['data_type'],
+                    'address': task['address'],
+                    'interval': task.get('interval_ms', 1000),
+                    'step': task.get('step', 1),
+                    'min': task.get('min_value', 0),
+                    'max': task.get('max_value', 65535),
+                    'current': task.get('current_value', 0)
+                })
+            
+            # 位翻转任务
+            for task in self.bit_flip_tasks:
+                tasks.append({
+                    'type': '位翻转',
+                    'data_type': task['data_type'],
+                    'address': task['address'],
+                    'interval': task.get('interval_ms', 1000)
+                })
+            
+            # 时间数据任务
+            for task in self.time_tasks:
+                tasks.append({
+                    'type': '时间数据',
+                    'base_address': task['base_address'],
+                    'interval': task.get('interval_ms', 1000)
+                })
+            
+            # 日期数据任务
+            for task in self.date_tasks:
+                tasks.append({
+                    'type': '日期数据',
+                    'base_address': task['base_address'],
+                    'interval': task.get('interval_ms', 60000)
+                })
+        
+        return tasks
+    
+    def remove_task_by_index(self, task_type, index):
+        """根据索引移除任务"""
+        with self.lock:
+            if task_type == '自增':
+                if 0 <= index < len(self.increment_tasks):
+                    task = self.increment_tasks.pop(index)
+                    self.gui._log_message(f"移除自增任务: {task['data_type']}地址{task['address']}")
+                    return True
+            
+            elif task_type == '位翻转':
+                if 0 <= index < len(self.bit_flip_tasks):
+                    task = self.bit_flip_tasks.pop(index)
+                    self.gui._log_message(f"移除位翻转任务: {task['data_type']}地址{task['address']}")
+                    return True
+            
+            elif task_type == '时间数据':
+                if 0 <= index < len(self.time_tasks):
+                    task = self.time_tasks.pop(index)
+                    self.gui._log_message(f"移除时间数据任务: 基础地址{task['base_address']}")
+                    return True
+            
+            elif task_type == '日期数据':
+                if 0 <= index < len(self.date_tasks):
+                    task = self.date_tasks.pop(index)
+                    self.gui._log_message(f"移除日期数据任务: 基础地址{task['base_address']}")
+                    return True
+        
+        return False
 
 
 def main():
