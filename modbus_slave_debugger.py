@@ -113,7 +113,7 @@ class ModbusSlaveServer:
         else:
             # Pro-face等设备，从1开始，需要减1
             if address > 0:
-                return address - 1
+                return address
             else:
                 # 地址为0时，返回0（虽然Pro-face通常不会使用地址0）
                 return 0
@@ -626,6 +626,16 @@ class ModbusSlaveServer:
         if len(request_data) < 13:
             return None
         
+        '''
+[23:49:45] ('request', 
+{'timestamp': '23:49:45.236', 
+'client': '192.168.1.100:1791', 
+'transaction_id': 0, 'unit_id': 1, 
+'function_code': 16, 'function_name': '写多个寄存器', 
+'address': 32, 'count': 1, 'values': [7777], 
+'raw_data': '000000000009011000200001021E61'})
+
+        '''
         transaction_id = request_data[0:2]
         unit_id = request_data[6]
         address = struct.unpack('>H', request_data[8:10])[0]
@@ -1472,7 +1482,7 @@ class ModbusSlaveGUI:
                 task_type = task['type']
                 data_type = task.get('data_type', '')
                 if task_type == "日期数据" or task_type == "时间数据":
-                    address = str(task.get('address', task.get('base_address', '')) + 1 + offset) 
+                    address = str(task.get('address', task.get('base_address', '')) + offset) 
                 else:
                     address = str(task.get('address', task.get('base_address', '')) + offset)
                 
@@ -1750,7 +1760,7 @@ class ModbusSlaveGUI:
         try:
             # 获取参数
             global offset
-            base_address = int(self.time_base_address_var.get()) - 1 - offset
+            base_address = int(self.time_base_address_var.get()) - offset
             interval_ms = int(self.time_interval_var.get())
             
             # 验证参数
@@ -1797,7 +1807,7 @@ class ModbusSlaveGUI:
         try:
             # 获取参数
             global offset
-            base_address = int(self.date_base_address_var.get()) - 1 - offset
+            base_address = int(self.date_base_address_var.get()) - offset
             interval_ms = int(self.date_interval_var.get())
             
             # 验证参数
