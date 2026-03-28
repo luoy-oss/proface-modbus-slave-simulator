@@ -96,6 +96,8 @@ class ModbusSlaveServer:
         self.input_registers[0] = 233
         self.input_registers[1] = 0
         self.holding_registers[0] = 2333
+        self.holding_registers[1] = 1
+        self.holding_registers[2] = 1
 
 
     def _convert_address(self, address):
@@ -1228,12 +1230,12 @@ class ModbusSlaveGUI:
             width=15
         ).pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Button(
-            button_frame,
-            text="移除自增任务",
-            command=self._remove_increment_task,
-            width=15
-        ).pack(side=tk.LEFT)
+        # ttk.Button(
+        #     button_frame,
+        #     text="移除自增任务",
+        #     command=self._remove_increment_task,
+        #     width=15
+        # ).pack(side=tk.LEFT)
         
         # 配置网格权重
         parent_frame.columnconfigure(0, weight=1)
@@ -1282,12 +1284,12 @@ class ModbusSlaveGUI:
             width=15
         ).pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Button(
-            button_frame,
-            text="移除位翻转任务",
-            command=self._remove_bit_flip_task,
-            width=15
-        ).pack(side=tk.LEFT)
+        # ttk.Button(
+        #     button_frame,
+        #     text="移除位翻转任务",
+        #     command=self._remove_bit_flip_task,
+        #     width=15
+        # ).pack(side=tk.LEFT)
         
         # 配置网格权重
         parent_frame.columnconfigure(0, weight=1)
@@ -1335,12 +1337,12 @@ class ModbusSlaveGUI:
             width=15
         ).pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Button(
-            button_frame,
-            text="移除时间数据任务",
-            command=self._remove_time_task,
-            width=15
-        ).pack(side=tk.LEFT)
+        # ttk.Button(
+        #     button_frame,
+        #     text="移除时间数据任务",
+        #     command=self._remove_time_task,
+        #     width=15
+        # ).pack(side=tk.LEFT)
         
         # 配置网格权重
         parent_frame.columnconfigure(0, weight=1)
@@ -1388,12 +1390,12 @@ class ModbusSlaveGUI:
             width=15
         ).pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Button(
-            button_frame,
-            text="移除日期数据任务",
-            command=self._remove_date_task,
-            width=15
-        ).pack(side=tk.LEFT)
+        # ttk.Button(
+        #     button_frame,
+        #     text="移除日期数据任务",
+        #     command=self._remove_date_task,
+        #     width=15
+        # ).pack(side=tk.LEFT)
         
         # 配置网格权重
         parent_frame.columnconfigure(0, weight=1)
@@ -1519,18 +1521,29 @@ class ModbusSlaveGUI:
             if values and len(values) >= 5:
                 task_type = values[0]
                 data_type = values[1]
-                address = values[2]
+                address_str = values[2]
+                
+                # 转换地址字符串为整数
+                try:
+                    address = int(address_str)
+                except ValueError:
+                    messagebox.showerror("错误", f"无效的地址: {address_str}")
+                    continue
+                
+                # 减去地址偏移量（因为显示时加上了offset）
+                global offset
+                actual_address = address - offset
                 
                 # 根据任务类型删除
                 if self.data_simulation_manager:
                     if task_type == '自增':
-                        self.data_simulation_manager.remove_increment_task(int(address), data_type)
+                        self.data_simulation_manager.remove_increment_task(actual_address, data_type)
                     elif task_type == '位翻转':
-                        self.data_simulation_manager.remove_bit_flip_task(int(address), data_type)
+                        self.data_simulation_manager.remove_bit_flip_task(actual_address, data_type)
                     elif task_type == '时间数据':
-                        self.data_simulation_manager.remove_time_task(int(address))
+                        self.data_simulation_manager.remove_time_task(actual_address)
                     elif task_type == '日期数据':
-                        self.data_simulation_manager.remove_date_task(int(address))
+                        self.data_simulation_manager.remove_date_task(actual_address)
         
         # 刷新任务列表
         self._refresh_task_list()
@@ -2817,7 +2830,6 @@ def main():
         print(f"应用程序启动失败: {e}")
         import traceback
         traceback.print_exc()
-
 
 if __name__ == "__main__":
     main()
