@@ -1353,7 +1353,7 @@ class ModbusSlaveGUI:
         interval_frame.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
         
         ttk.Label(interval_frame, text="更新间隔(ms):").pack(side=tk.LEFT, padx=(0, 5))
-        self.date_interval_var = tk.StringVar(value="60000")
+        self.date_interval_var = tk.StringVar(value="1000")
         ttk.Entry(interval_frame, textvariable=self.date_interval_var, width=10).pack(side=tk.LEFT, padx=(0, 10))
         
         # 当前日期显示
@@ -2244,7 +2244,7 @@ class ModbusSlaveGUI:
         
         dialog = tk.Toplevel(self.root)
         dialog.title(f"编辑{self._get_data_type_name(data_type)}地址 {display_address}")
-        dialog.geometry("300x150")
+        dialog.geometry("300x200")
         dialog.resizable(False, False)
         
         # 使对话框模态
