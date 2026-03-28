@@ -17,6 +17,7 @@ import struct
 import sys
 import os
 import json
+import array
 
 offset = 0
 
@@ -44,11 +45,13 @@ class ModbusSlaveServer:
         self.server_socket = None
         self.client_threads = []
         
-        # Modbus数据存储
-        self.coils = [False] * 65536  # 线圈状态
-        self.discrete_inputs = [False] * 65536  # 离散输入
-        self.input_registers = [0] * 65536  # 输入寄存器
-        self.holding_registers = [0] * 65536  # 保持寄存器
+        # Modbus数据存储 - 使用更高效的数据结构
+        # 使用array('b')存储布尔值（1字节每个），比Python列表更节省内存
+        self.coils = array.array('b', [0]) * 65536  # 线圈状态，0=False, 1=True
+        self.discrete_inputs = array.array('b', [0]) * 65536  # 离散输入
+        # 使用array('H')存储无符号短整型（2字节每个），比Python整数列表更节省内存
+        self.input_registers = array.array('H', [0]) * 65536  # 输入寄存器
+        self.holding_registers = array.array('H', [0]) * 65536  # 保持寄存器
         
         # 消息队列
         self.message_queue = message_queue
@@ -74,11 +77,11 @@ class ModbusSlaveServer:
         """初始化测试数据"""
         # 初始化一些线圈状态
         for i in range(0, 100, 2):
-            self.coils[i] = True
+            self.coils[i] = 1  # True
             
         # 初始化一些离散输入
         for i in range(0, 100, 3):
-            self.discrete_inputs[i] = True
+            self.discrete_inputs[i] = 1  # True
             
         # 初始化输入寄存器（模拟传感器数据）
         for i in range(0, 100):
@@ -88,8 +91,8 @@ class ModbusSlaveServer:
         for i in range(0, 100):
             self.holding_registers[i] = i * 100
 
-        self.coils[0] = True
-        self.discrete_inputs[0] = True
+        self.coils[0] = 1  # True
+        self.discrete_inputs[0] = 1  # True
         self.input_registers[0] = 233
         self.input_registers[1] = 0
         self.holding_registers[0] = 2333
@@ -396,7 +399,7 @@ class ModbusSlaveServer:
         response_bytes = bytearray([0] * byte_count)
         
         for i in range(count):
-            if converted_address + i < len(self.coils) and self.coils[converted_address + i]:
+            if converted_address + i < len(self.coils) and self.coils[converted_address + i] == 1:
                 byte_index = i // 8
                 bit_index = i % 8
                 response_bytes[byte_index] |= (1 << bit_index)
@@ -435,7 +438,7 @@ class ModbusSlaveServer:
         response_bytes = bytearray([0] * byte_count)
         
         for i in range(count):
-            if converted_address + i < len(self.discrete_inputs) and self.discrete_inputs[converted_address + i]:
+            if converted_address + i < len(self.discrete_inputs) and self.discrete_inputs[converted_address + i] == 1:
                 byte_index = i // 8
                 bit_index = i % 8
                 response_bytes[byte_index] |= (1 << bit_index)
@@ -545,7 +548,7 @@ class ModbusSlaveServer:
         
         # 写入线圈
         if converted_address < len(self.coils):
-            self.coils[converted_address] = (value == 0xFF00)
+            self.coils[converted_address] = 1 if (value == 0xFF00) else 0
         
         # 返回相同的请求作为响应（Modbus标准）
         return request_data
@@ -604,7 +607,7 @@ class ModbusSlaveServer:
                 bit_index = i % 8
                 if byte_index < len(request_data):
                     byte_val = request_data[byte_index]
-                    self.coils[converted_address + i] = ((byte_val >> bit_index) & 0x01) == 0x01
+                    self.coils[converted_address + i] = 1 if ((byte_val >> bit_index) & 0x01) == 0x01 else 0
         
         # 构建响应（返回地址和数量）
         response = bytearray()
@@ -677,7 +680,7 @@ class ModbusSlaveGUI:
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Proface Modbus Slave v1.1")
+        self.root.title("Proface Modbus Slave v1.4")
         self.root.geometry("1200x800")
         
         # 设置图标（如果有）
@@ -1892,15 +1895,20 @@ class ModbusSlaveGUI:
     def _process_messages(self):
         """处理消息队列中的消息"""
         try:
-            while True:
-                message = self.message_queue.get_nowait()
-                if message:
-                    self._log_message(message)
-        except queue.Empty:
-            pass
+            # 限制每次处理的消息数量，避免阻塞GUI
+            max_messages = 10
+            for _ in range(max_messages):
+                try:
+                    message = self.message_queue.get_nowait()
+                    if message:
+                        self._log_message(message)
+                except queue.Empty:
+                    break
+        except Exception as e:
+            print(f"处理消息时出错: {e}")
         
-        # 每100ms检查一次消息队列
-        self.root.after(100, self._process_messages)
+        # 每200ms检查一次消息队列（降低频率）
+        self.root.after(200, self._process_messages)
     
     def _start_data_update(self):
         """启动数据更新线程"""
@@ -1911,21 +1919,29 @@ class ModbusSlaveGUI:
     
     def _update_data_monitor(self):
         """更新数据监控显示"""
+        # 记录上次更新时间，实现增量更新
+        last_update_time = time.time()
+        update_interval = 2  # 每2秒更新一次（降低频率）
+        
         while self.server_running:
             try:
-                # 更新线圈状态显示
-                self._update_coils_display()
+                current_time = time.time()
+                if current_time - last_update_time >= update_interval:
+                    # 更新线圈状态显示
+                    self._update_coils_display()
+                    
+                    # 更新离散输入显示
+                    self._update_inputs_display()
+                    
+                    # 更新输入寄存器显示
+                    self._update_input_registers_display()
+                    
+                    # 更新保持寄存器显示
+                    self._update_holding_registers_display()
+                    
+                    last_update_time = current_time
                 
-                # 更新离散输入显示
-                self._update_inputs_display()
-                
-                # 更新输入寄存器显示
-                self._update_input_registers_display()
-                
-                # 更新保持寄存器显示
-                self._update_holding_registers_display()
-                
-                time.sleep(1)  # 每秒更新一次
+                time.sleep(0.5)  # 降低循环频率
                 
             except Exception as e:
                 print(f"更新数据监控时出错: {e}")
@@ -1936,79 +1952,82 @@ class ModbusSlaveGUI:
         if not self.modbus_server:
             return
         
-        # 获取当前显示的数据
-        current_items = {}
-        for item in self.coils_tree.get_children():
-            values = self.coils_tree.item(item, "values")
-            if values and len(values) >= 3:
-                address = int(values[0])
-                current_items[address] = {
-                    "status": values[1],
-                    "value": values[2]
-                }
+        # 使用缓存来快速查找Treeview项
+        if not hasattr(self, '_coils_item_cache'):
+            self._coils_item_cache = {}
+            # 初始化缓存
+            for item in self.coils_tree.get_children():
+                values = self.coils_tree.item(item, "values")
+                if values and len(values) >= 1:
+                    address = int(values[0])
+                    self._coils_item_cache[address] = item
         
         # 更新前50个线圈状态
         for i in range(50):
             display_address = self._get_display_address(i)
-            status = "ON" if self.modbus_server.coils[i] else "OFF"
-            value = "1" if self.modbus_server.coils[i] else "0"
+            coil_value = self.modbus_server.coils[i]
+            status = "ON" if coil_value == 1 else "OFF"
+            value = "1" if coil_value == 1 else "0"
             
             # 检查是否需要更新
-            if display_address in current_items:
-                if current_items[display_address]["status"] != status or current_items[display_address]["value"] != value:
-                    # 找到对应的item并更新
-                    for item in self.coils_tree.get_children():
-                        item_values = self.coils_tree.item(item, "values")
-                        if item_values and len(item_values) >= 1 and int(item_values[0]) == display_address:
-                            self.coils_tree.item(item, values=(display_address, status, value))
-                            break
+            if display_address in self._coils_item_cache:
+                item = self._coils_item_cache[display_address]
+                current_values = self.coils_tree.item(item, "values")
+                if current_values and len(current_values) >= 3:
+                    if current_values[1] != status or current_values[2] != value:
+                        self.coils_tree.item(item, values=(display_address, status, value))
             else:
-                # 添加新项
-                self.coils_tree.insert("", "end", values=(display_address, status, value))
+                # 添加新项并更新缓存
+                item = self.coils_tree.insert("", "end", values=(display_address, status, value))
+                self._coils_item_cache[display_address] = item
     
     def _update_inputs_display(self):
         """更新离散输入显示"""
         if not self.modbus_server:
             return
         
-        # 获取当前显示的数据
-        current_items = {}
-        for item in self.inputs_tree.get_children():
-            values = self.inputs_tree.item(item, "values")
-            if values and len(values) >= 2:
-                address = int(values[0])
-                current_items[address] = values[1]
+        # 使用缓存来快速查找Treeview项
+        if not hasattr(self, '_inputs_item_cache'):
+            self._inputs_item_cache = {}
+            # 初始化缓存
+            for item in self.inputs_tree.get_children():
+                values = self.inputs_tree.item(item, "values")
+                if values and len(values) >= 1:
+                    address = int(values[0])
+                    self._inputs_item_cache[address] = item
         
         # 更新前50个离散输入状态
         for i in range(50):
             display_address = self._get_display_address(i)
-            status = "ON" if self.modbus_server.discrete_inputs[i] else "OFF"
+            input_value = self.modbus_server.discrete_inputs[i]
+            status = "ON" if input_value == 1 else "OFF"
             
             # 检查是否需要更新
-            if display_address in current_items:
-                if current_items[display_address] != status:
-                    # 找到对应的item并更新
-                    for item in self.inputs_tree.get_children():
-                        item_values = self.inputs_tree.item(item, "values")
-                        if item_values and len(item_values) >= 1 and int(item_values[0]) == display_address:
-                            self.inputs_tree.item(item, values=(display_address, status))
-                            break
+            if display_address in self._inputs_item_cache:
+                item = self._inputs_item_cache[display_address]
+                current_values = self.inputs_tree.item(item, "values")
+                if current_values and len(current_values) >= 2:
+                    if current_values[1] != status:
+                        self.inputs_tree.item(item, values=(display_address, status))
             else:
-                # 添加新项
-                self.inputs_tree.insert("", "end", values=(display_address, status))
+                # 添加新项并更新缓存
+                item = self.inputs_tree.insert("", "end", values=(display_address, status))
+                self._inputs_item_cache[display_address] = item
     
     def _update_input_registers_display(self):
         """更新输入寄存器显示"""
         if not self.modbus_server:
             return
         
-        # 获取当前显示的数据
-        current_items = {}
-        for item in self.input_regs_tree.get_children():
-            values = self.input_regs_tree.item(item, "values")
-            if values and len(values) >= 2:
-                address = int(values[0])
-                current_items[address] = values[1]
+        # 使用缓存来快速查找Treeview项
+        if not hasattr(self, '_input_regs_item_cache'):
+            self._input_regs_item_cache = {}
+            # 初始化缓存
+            for item in self.input_regs_tree.get_children():
+                values = self.input_regs_tree.item(item, "values")
+                if values and len(values) >= 1:
+                    address = int(values[0])
+                    self._input_regs_item_cache[address] = item
         
         # 更新前50个输入寄存器值
         for i in range(50):
@@ -2016,30 +2035,31 @@ class ModbusSlaveGUI:
             value = self.modbus_server.input_registers[i]
             
             # 检查是否需要更新
-            if display_address in current_items:
-                if str(current_items[display_address]) != str(value):
-                    # 找到对应的item并更新
-                    for item in self.input_regs_tree.get_children():
-                        item_values = self.input_regs_tree.item(item, "values")
-                        if item_values and len(item_values) >= 1 and int(item_values[0]) == display_address:
-                            self.input_regs_tree.item(item, values=(display_address, value))
-                            break
+            if display_address in self._input_regs_item_cache:
+                item = self._input_regs_item_cache[display_address]
+                current_values = self.input_regs_tree.item(item, "values")
+                if current_values and len(current_values) >= 2:
+                    if str(current_values[1]) != str(value):
+                        self.input_regs_tree.item(item, values=(display_address, value))
             else:
-                # 添加新项
-                self.input_regs_tree.insert("", "end", values=(display_address, value))
+                # 添加新项并更新缓存
+                item = self.input_regs_tree.insert("", "end", values=(display_address, value))
+                self._input_regs_item_cache[display_address] = item
     
     def _update_holding_registers_display(self):
         """更新保持寄存器显示"""
         if not self.modbus_server:
             return
         
-        # 获取当前显示的数据
-        current_items = {}
-        for item in self.holding_regs_tree.get_children():
-            values = self.holding_regs_tree.item(item, "values")
-            if values and len(values) >= 2:
-                address = int(values[0])
-                current_items[address] = values[1]
+        # 使用缓存来快速查找Treeview项
+        if not hasattr(self, '_holding_regs_item_cache'):
+            self._holding_regs_item_cache = {}
+            # 初始化缓存
+            for item in self.holding_regs_tree.get_children():
+                values = self.holding_regs_tree.item(item, "values")
+                if values and len(values) >= 1:
+                    address = int(values[0])
+                    self._holding_regs_item_cache[address] = item
         
         # 更新前50个保持寄存器值
         for i in range(50):
@@ -2047,17 +2067,16 @@ class ModbusSlaveGUI:
             value = self.modbus_server.holding_registers[i]
             
             # 检查是否需要更新
-            if display_address in current_items:
-                if str(current_items[display_address]) != str(value):
-                    # 找到对应的item并更新
-                    for item in self.holding_regs_tree.get_children():
-                        item_values = self.holding_regs_tree.item(item, "values")
-                        if item_values and len(item_values) >= 1 and int(item_values[0]) == display_address:
-                            self.holding_regs_tree.item(item, values=(display_address, value))
-                            break
+            if display_address in self._holding_regs_item_cache:
+                item = self._holding_regs_item_cache[display_address]
+                current_values = self.holding_regs_tree.item(item, "values")
+                if current_values and len(current_values) >= 2:
+                    if str(current_values[1]) != str(value):
+                        self.holding_regs_tree.item(item, values=(display_address, value))
             else:
-                # 添加新项
-                self.holding_regs_tree.insert("", "end", values=(display_address, value))
+                # 添加新项并更新缓存
+                item = self.holding_regs_tree.insert("", "end", values=(display_address, value))
+                self._holding_regs_item_cache[display_address] = item
     
     def _safe_update_text(self, text_widget, content):
         """安全更新文本控件内容"""
@@ -2084,7 +2103,7 @@ class ModbusSlaveGUI:
                 messagebox.showerror("错误", "地址必须在0-65535之间")
                 return
             
-            value = True if value_str == "ON" else False
+            value = 1 if value_str == "ON" else 0
             
             # 设置线圈值
             self.modbus_server.coils[internal_address] = value
@@ -2197,7 +2216,7 @@ class ModbusSlaveGUI:
         if not self.modbus_server:
             return
         
-        value = True if value_str == "ON" else False
+        value = 1 if value_str == "ON" else 0
         self.modbus_server.coils[internal_address] = value
         self._update_coils_display()
         
@@ -2210,7 +2229,7 @@ class ModbusSlaveGUI:
         if not self.modbus_server:
             return
         
-        value = True if value_str == "ON" else False
+        value = 1 if value_str == "ON" else 0
         self.modbus_server.discrete_inputs[internal_address] = value
         self._update_inputs_display()
         
@@ -2555,11 +2574,11 @@ class DataSimulationManager:
     def _set_value(self, address, data_type, value):
         """设置值"""
         if data_type == 'coil':
-            self.modbus_server.coils[address] = bool(value)
+            self.modbus_server.coils[address] = 1 if value else 0
             # 更新显示
             self.gui._update_coils_display()
         elif data_type == 'discrete_input':
-            self.modbus_server.discrete_inputs[address] = bool(value)
+            self.modbus_server.discrete_inputs[address] = 1 if value else 0
             # 更新显示
             self.gui._update_inputs_display()
         elif data_type == 'input_register':
@@ -2600,62 +2619,78 @@ class DataSimulationManager:
         """模拟循环"""
         self.running = True
         
+        # 动态休眠时间，根据任务数量调整
+        base_sleep_time = 0.05  # 50ms基础休眠时间
+        
         while self.running:
             current_time_ms = time.time() * 1000
+            has_tasks = False
             
             with self.lock:
-                # 处理自增任务
-                for task in self.increment_tasks[:]:
-                    if current_time_ms - task['last_update'] >= task['interval_ms']:
-                        # 执行自增
-                        new_value = task['current_value'] + task['step']
-                        
-                        # 检查边界
-                        if new_value > task['max_value']:
-                            new_value = task['min_value']
-                        elif new_value < task['min_value']:
-                            new_value = task['max_value']
-                        
-                        # 设置新值
-                        self._set_value(task['address'], task['data_type'], new_value)
-                        
-                        # 更新任务状态
-                        task['current_value'] = new_value
-                        task['last_update'] = current_time_ms
+                # 检查是否有任务需要处理
+                has_tasks = (len(self.increment_tasks) > 0 or 
+                           len(self.bit_flip_tasks) > 0 or 
+                           len(self.time_tasks) > 0 or 
+                           len(self.date_tasks) > 0)
                 
-                # 处理位翻转任务
-                for task in self.bit_flip_tasks[:]:
-                    if current_time_ms - task['last_update'] >= task['interval_ms']:
-                        # 执行位翻转
-                        current_value = self._get_current_value(task['address'], task['data_type'])
-                        new_value = 0 if current_value else 1
-                        
-                        # 设置新值
-                        self._set_value(task['address'], task['data_type'], new_value)
-                        
-                        # 更新任务状态
-                        task['last_update'] = current_time_ms
-                
-                # 处理时间数据任务
-                for task in self.time_tasks[:]:
-                    if current_time_ms - task['last_update'] >= task['interval_ms']:
-                        # 更新时间数据
-                        self._update_time_data(task['base_address'])
-                        
-                        # 更新任务状态
-                        task['last_update'] = current_time_ms
-                
-                # 处理日期数据任务
-                for task in self.date_tasks[:]:
-                    if current_time_ms - task['last_update'] >= task['interval_ms']:
-                        # 更新日期数据
-                        self._update_date_data(task['base_address'])
-                        
-                        # 更新任务状态
-                        task['last_update'] = current_time_ms
+                if has_tasks:
+                    # 处理自增任务
+                    for task in self.increment_tasks[:]:
+                        if current_time_ms - task['last_update'] >= task['interval_ms']:
+                            # 执行自增
+                            new_value = task['current_value'] + task['step']
+                            
+                            # 检查边界
+                            if new_value > task['max_value']:
+                                new_value = task['min_value']
+                            elif new_value < task['min_value']:
+                                new_value = task['max_value']
+                            
+                            # 设置新值
+                            self._set_value(task['address'], task['data_type'], new_value)
+                            
+                            # 更新任务状态
+                            task['current_value'] = new_value
+                            task['last_update'] = current_time_ms
+                    
+                    # 处理位翻转任务
+                    for task in self.bit_flip_tasks[:]:
+                        if current_time_ms - task['last_update'] >= task['interval_ms']:
+                            # 执行位翻转
+                            current_value = self._get_current_value(task['address'], task['data_type'])
+                            new_value = 0 if current_value else 1
+                            
+                            # 设置新值
+                            self._set_value(task['address'], task['data_type'], new_value)
+                            
+                            # 更新任务状态
+                            task['last_update'] = current_time_ms
+                    
+                    # 处理时间数据任务
+                    for task in self.time_tasks[:]:
+                        if current_time_ms - task['last_update'] >= task['interval_ms']:
+                            # 更新时间数据
+                            self._update_time_data(task['base_address'])
+                            
+                            # 更新任务状态
+                            task['last_update'] = current_time_ms
+                    
+                    # 处理日期数据任务
+                    for task in self.date_tasks[:]:
+                        if current_time_ms - task['last_update'] >= task['interval_ms']:
+                            # 更新日期数据
+                            self._update_date_data(task['base_address'])
+                            
+                            # 更新任务状态
+                            task['last_update'] = current_time_ms
             
-            # 休眠一段时间，避免CPU占用过高
-            time.sleep(0.01)  # 10ms
+            # 动态调整休眠时间
+            if has_tasks:
+                # 有任务时使用较短的休眠时间
+                time.sleep(0.02)  # 20ms
+            else:
+                # 没有任务时使用较长的休眠时间
+                time.sleep(0.1)  # 100ms
     
     def remove_increment_task(self, address, data_type):
         """移除自增任务"""

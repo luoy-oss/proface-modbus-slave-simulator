@@ -1,0 +1,6 @@
+# Modbus从机调试软件依赖
+# 注意：本软件使用Python标准库，无需额外依赖
+
+
+# 以下依赖库是为PyInstaller打包准备
+pyinstaller==6.10.0

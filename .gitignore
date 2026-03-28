@@ -1,2 +1,7 @@
 dist
 build
+test
+temp
+modbus_config.json
+__pycache__
+debug_*.py
