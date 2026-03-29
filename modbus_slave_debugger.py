@@ -692,7 +692,7 @@ class ModbusSlaveGUI:
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Proface Modbus Slave v1.5")
+        self.root.title("Proface Modbus Slave v1.6")
         self.root.geometry("1200x800")
         
         # 设置图标（如果有）
