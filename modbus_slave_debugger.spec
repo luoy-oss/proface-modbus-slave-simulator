@@ -35,7 +35,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # 设置为True显示控制台窗口，False不显示
+    console=True,  # 设置为True显示控制台窗口，False不显示
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -44,13 +44,3 @@ exe = EXE(
     icon='icon.ico' if os.path.exists('icon.ico') else None
 )
 
-# 如果需要单文件可执行文件，取消注释下面的coll部分
-# coll = COLLECT(
-#     exe,
-#     a.binaries,
-#     a.datas,
-#     strip=False,
-#     upx=True,
-#     upx_exclude=[],
-#     name='ModbusSlaveDebugger'
-# )
